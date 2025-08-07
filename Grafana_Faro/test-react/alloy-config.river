@@ -1,0 +1,44 @@
+logging {
+  level = "info"
+}
+
+prometheus.remote_write "metrics_write" {
+  endpoint {
+    url = "http://prometheus:9090/api/v1/write"
+  }
+}
+
+loki.write "logs_write_client" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+otelcol.exporter.otlp "trace_write" {
+  client {
+    endpoint = "tempo:4317"
+    tls {
+      insecure = true
+    }
+  }
+}
+
+faro.receiver "frontend_receiver" {
+  server {
+    listen_address = "0.0.0.0"
+    listen_port = 12347
+    cors_allowed_origins = ["*"]
+  }
+
+  output {
+    logs = [loki.write.logs_write_client.receiver]
+    traces = [otelcol.exporter.otlp.trace_write.input]
+  }
+}
+
+prometheus.scrape "faro_metrics" {
+  targets = [{"__address__" = "alloy:12346"},]
+  forward_to = [prometheus.remote_write.metrics_write.receiver]
+  scrape_interval = "15s"
+  metrics_path = "/metrics"
+}

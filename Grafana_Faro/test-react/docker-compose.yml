@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  # Grafana Alloy - Collects telemetry data from Faro
+  alloy:
+    image: grafana/alloy:latest
+    container_name: grafana-alloy
+    ports:
+      - "12346:12346"  # Faro receiver port
+      - "12347:12347"
+    volumes:
+#      - ./config/alloy.river:/etc/alloy/config.river
+       - ./alloy-config.river:/etc/alloy/config.river 
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12346", "/etc/alloy/config.river"] 
+#      - run --server.http.listen-addr=0.0.0.0:12345 /etc/alloy/config.river
+#      - "run"
+#      - "/etc/alloy/config.river"
+#      - "--storage.path=/var/lib/alloy/data"
+#      - "--server.http.listen-addr=0.0.0.0:12345"
+    networks:
+      - observability
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+  # Prometheus - Stores metrics
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+      - '--web.enable-remote-write-receiver'
+    networks:
+      - observability
+
+  # Loki - Stores logs
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./config/loki.yml:/etc/loki/local-config.yaml
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - observability
+
+  # Tempo - Stores traces
+  tempo:
+    image: grafana/tempo:latest
+    container_name: tempo
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "3200:3200"   # Tempo HTTP
+    volumes:
+      - ./config/tempo.yml:/etc/tempo/tempo.yml   # ✅ MOUNTING CONFIG FILE
+      - ./tempo-data/wal:/var/tempo/wal
+      - ./tempo-data/blocks:/var/tempo/blocks
+      - ./tempo-data/generator:/var/tempo/generator/wal
+    command: 
+      - "-config.file=/etc/tempo/tempo.yml"
+    networks:
+      - observability
+
+  # Grafana - Visualization and dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3009:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - observability
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+networks:
+  observability:
+    driver: bridge
+
+volumes:
+  prometheus_data:
+  loki_data:
+  grafana_data:
